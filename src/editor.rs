@@ -21,10 +21,12 @@ const PASTE: u8 = ctrl_key(b'V');
 const DUPLICATE: u8 = ctrl_key(b'D');
 const EXECUTE: u8 = ctrl_key(b'E');
 const REMOVE_LINE: u8 = ctrl_key(b'R');
+const UNDO: u8 = ctrl_key(b'Z');
+const REDO: u8 = ctrl_key(b'Y');
 const BACKSPACE: u8 = 127;
 
 const HELP_MESSAGE: &str =
-    "^S save | ^Q quit | ^F find | ^G go to | ^D duplicate | ^E execute | ^C copy | ^X cut | ^V paste";
+    "^S save | ^Q quit | ^F find | ^G go to | ^D duplicate | ^E execute | ^C copy | ^X cut | ^V paste | ^Z undo | ^Y redo";
 
 /// `set_status!` sets a formatted status message for the editor.
 /// Example usage: `set_status!(editor, "{} written to {}", file_size, file_name)`
@@ -122,6 +124,13 @@ pub struct Editor {
     orig_term_mode: Option<sys::TermMode>,
     /// The copied buffer of a row
     copied_row: Vec<u8>,
+    /// The history buffer of latest deleted row
+    history_row: Vec<u8>,
+    /// The history buffer position of latest deleted tow
+    history_row_y: usize,
+    /// The history type if undo/redo have to delete or restore line
+    /// true if restores line | false if deletes line
+    history_type: bool
 }
 
 /// Describes a status message, shown at the bottom at the screen.
@@ -427,10 +436,27 @@ impl Editor {
         } else {
             self.rows.insert(self.cursor.y + 1, Row::new(self.copied_row.clone()));
         }
+        self.history_row_y = self.cursor.y + 1;
+        self.history_type = false;
         self.update_row(self.cursor.y + usize::from(self.cursor.y + 1 != self.rows.len()), false);
         (self.cursor.y, self.dirty) = (self.cursor.y + 1, true);
         // The line number has changed
         self.update_screen_cols();
+    }
+
+    fn undo(&mut self) {
+        if self.history_type == true {
+            self.n_bytes += self.history_row.len() as u64;
+            self.rows.insert(self.history_row_y, Row::new(self.history_row.clone()));
+            self.update_row(self.history_row_y, false);
+            (self.cursor.y, self.dirty) = (self.history_row_y, true);
+            self.history_type = false;
+            // The line number has changed
+            self.update_screen_cols();
+        } else {
+            self.cursor.y = self.history_row_y;
+            self.delete_current_row();
+        }
     }
 
     /// Try to load a file. If found, load the rows and update the render and syntax highlighting.
@@ -613,7 +639,12 @@ impl Editor {
             Key::End => self.cursor.x = self.current_row().map_or(0, |row| row.chars.len()),
             Key::Char(b'\r' | b'\n') => self.insert_new_line(), // Enter
             Key::Char(BACKSPACE | DELETE_BIS) => self.delete_char(), // Backspace or Ctrl + H
-            Key::Char(REMOVE_LINE) => self.delete_current_row(),
+            Key::Char(REMOVE_LINE) => {
+                self.history_row_y = self.cursor.y;
+                self.history_row = self.rows[self.cursor.y].chars.clone();
+                self.history_type = true;
+                self.delete_current_row();
+            }
             Key::Delete => {
                 self.move_cursor(&AKey::Right);
                 self.delete_char();
@@ -640,12 +671,16 @@ impl Editor {
             Key::Char(GOTO) => prompt_mode = Some(PromptMode::GoTo(String::new())),
             Key::Char(DUPLICATE) => self.duplicate_current_row(),
             Key::Char(CUT) => {
+                self.history_row_y = self.cursor.y;
+                self.history_row = self.rows[self.cursor.y].chars.clone();
+                self.history_type = true;
                 self.copy_current_row();
                 self.delete_current_row();
             }
             Key::Char(COPY) => self.copy_current_row(),
             Key::Char(PASTE) => self.paste_current_row(),
             Key::Char(EXECUTE) => prompt_mode = Some(PromptMode::Execute(String::new())),
+            Key::Char(UNDO) => self.undo(),
             Key::Char(c) => self.insert_byte(*c),
         }
         self.quit_times = quit_times;
