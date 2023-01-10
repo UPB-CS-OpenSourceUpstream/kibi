@@ -128,9 +128,11 @@ pub struct Editor {
     history_row: Vec<u8>,
     /// The history buffer position of latest deleted tow
     history_row_y: usize,
-    /// The history type if undo/redo have to delete or restore line
+    /// If undo/redo have to delete or restore line
     /// true if restores line | false if deletes line
-    history_type: bool
+    history_restore: bool,
+    /// If redo is available (when exists a previous undo)
+    redo_availability: bool,
 }
 
 /// Describes a status message, shown at the bottom at the screen.
@@ -436,8 +438,6 @@ impl Editor {
         } else {
             self.rows.insert(self.cursor.y + 1, Row::new(self.copied_row.clone()));
         }
-        self.history_row_y = self.cursor.y + 1;
-        self.history_type = false;
         self.update_row(self.cursor.y + usize::from(self.cursor.y + 1 != self.rows.len()), false);
         (self.cursor.y, self.dirty) = (self.cursor.y + 1, true);
         // The line number has changed
@@ -445,17 +445,41 @@ impl Editor {
     }
 
     fn undo(&mut self) {
-        if self.history_type == true {
-            self.n_bytes += self.history_row.len() as u64;
-            self.rows.insert(self.history_row_y, Row::new(self.history_row.clone()));
-            self.update_row(self.history_row_y, false);
-            (self.cursor.y, self.dirty) = (self.history_row_y, true);
-            self.history_type = false;
-            // The line number has changed
-            self.update_screen_cols();
-        } else {
-            self.cursor.y = self.history_row_y;
-            self.delete_current_row();
+        if self.history_row_y != usize::MAX {
+            if !self.redo_availability {
+                if self.history_restore {
+                    self.n_bytes += self.history_row.len() as u64;
+                    self.rows.insert(self.history_row_y, Row::new(self.history_row.clone()));
+                    self.update_row(self.history_row_y, false);
+                    (self.cursor.y, self.dirty) = (self.history_row_y, true);
+                    // The line number has changed
+                    self.update_screen_cols();
+                } else {
+                    self.history_row = self.rows[self.history_row_y].chars.clone();
+                    self.cursor.y = self.history_row_y;
+                    self.delete_current_row();
+                }
+            }
+            self.redo_availability = true;
+        }
+    }
+
+    fn redo(&mut self) {
+        if self.history_row_y != usize::MAX {
+            if self.redo_availability {
+                if self.history_restore {
+                    self.cursor.y = self.history_row_y;
+                    self.delete_current_row();
+                } else {
+                    self.n_bytes += self.history_row.len() as u64;
+                    self.rows.insert(self.history_row_y, Row::new(self.history_row.clone()));
+                    self.update_row(self.history_row_y, false);
+                    (self.cursor.y, self.dirty) = (self.history_row_y, true);
+                    // The line number has changed
+                    self.update_screen_cols();
+                }
+            }
+            self.redo_availability = false;
         }
     }
 
@@ -642,7 +666,7 @@ impl Editor {
             Key::Char(REMOVE_LINE) => {
                 self.history_row_y = self.cursor.y;
                 self.history_row = self.rows[self.cursor.y].chars.clone();
-                self.history_type = true;
+                self.history_restore = true;
                 self.delete_current_row();
             }
             Key::Delete => {
@@ -673,15 +697,25 @@ impl Editor {
             Key::Char(CUT) => {
                 self.history_row_y = self.cursor.y;
                 self.history_row = self.rows[self.cursor.y].chars.clone();
-                self.history_type = true;
+                self.history_restore = true;
+                self.redo_availability = false;
                 self.copy_current_row();
                 self.delete_current_row();
             }
             Key::Char(COPY) => self.copy_current_row(),
-            Key::Char(PASTE) => self.paste_current_row(),
+            Key::Char(PASTE) => {
+                self.history_row_y = self.cursor.y + 1;
+                self.history_restore = false;
+                self.redo_availability = false;
+                self.paste_current_row();
+            }
             Key::Char(EXECUTE) => prompt_mode = Some(PromptMode::Execute(String::new())),
             Key::Char(UNDO) => self.undo(),
-            Key::Char(c) => self.insert_byte(*c),
+            Key::Char(REDO) => self.redo(),
+            Key::Char(c) => {
+                self.history_row_y = usize::MAX;  // resets undo and redo option
+                self.insert_byte(*c);
+            }
         }
         self.quit_times = quit_times;
         (false, prompt_mode)
