@@ -445,42 +445,38 @@ impl Editor {
     }
 
     fn undo(&mut self) {
-        if self.history_row_y != usize::MAX {
-            if !self.redo_availability {
-                if self.history_restore {
-                    self.n_bytes += self.history_row.len() as u64;
-                    self.rows.insert(self.history_row_y, Row::new(self.history_row.clone()));
-                    self.update_row(self.history_row_y, false);
-                    (self.cursor.y, self.dirty) = (self.history_row_y, true);
-                    // The line number has changed
-                    self.update_screen_cols();
-                } else {
-                    self.history_row = self.rows[self.history_row_y].chars.clone();
-                    self.cursor.y = self.history_row_y;
-                    self.delete_current_row();
-                }
+        if !self.redo_availability {
+            if self.history_restore == true {
+                self.n_bytes += self.history_row.len() as u64;
+                self.rows.insert(self.history_row_y, Row::new(self.history_row.clone()));
+                self.update_row(self.history_row_y, false);
+                (self.cursor.y, self.dirty) = (self.history_row_y, true);
+                // The line number has changed
+                self.update_screen_cols();
+            } else {
+                self.history_row = self.rows[self.history_row_y].chars.clone();
+                self.cursor.y = self.history_row_y;
+                self.delete_current_row();
             }
             self.redo_availability = true;
         }
     }
 
     fn redo(&mut self) {
-        if self.history_row_y != usize::MAX {
-            if self.redo_availability {
-                if self.history_restore {
-                    self.cursor.y = self.history_row_y;
-                    self.delete_current_row();
-                } else {
-                    self.n_bytes += self.history_row.len() as u64;
-                    self.rows.insert(self.history_row_y, Row::new(self.history_row.clone()));
-                    self.update_row(self.history_row_y, false);
-                    (self.cursor.y, self.dirty) = (self.history_row_y, true);
-                    // The line number has changed
-                    self.update_screen_cols();
-                }
+        if self.redo_availability {
+            if self.history_restore {
+                self.cursor.y = self.history_row_y;
+                self.delete_current_row();
+            } else {
+                self.n_bytes += self.history_row.len() as u64;
+                self.rows.insert(self.history_row_y, Row::new(self.history_row.clone()));
+                self.update_row(self.history_row_y, false);
+                (self.cursor.y, self.dirty) = (self.history_row_y, true);
+                // The line number has changed
+                self.update_screen_cols();
             }
-            self.redo_availability = false;
         }
+        self.redo_availability = false;
     }
 
     /// Try to load a file. If found, load the rows and update the render and syntax highlighting.
@@ -667,6 +663,7 @@ impl Editor {
                 self.history_row_y = self.cursor.y;
                 self.history_row = self.rows[self.cursor.y].chars.clone();
                 self.history_restore = true;
+                self.redo_availability = false;
                 self.delete_current_row();
             }
             Key::Delete => {
@@ -712,10 +709,7 @@ impl Editor {
             Key::Char(EXECUTE) => prompt_mode = Some(PromptMode::Execute(String::new())),
             Key::Char(UNDO) => self.undo(),
             Key::Char(REDO) => self.redo(),
-            Key::Char(c) => {
-                self.history_row_y = usize::MAX;  // resets undo and redo option
-                self.insert_byte(*c);
-            }
+            Key::Char(c) => self.insert_byte(*c),
         }
         self.quit_times = quit_times;
         (false, prompt_mode)
