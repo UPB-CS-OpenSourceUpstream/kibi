@@ -201,6 +201,8 @@ kibi --version    # Print version information and exit
 | Ctrl-C            | Copies the entire line                                        |
 | Ctrl-X            | Cuts the entire line                                          |
 | Ctrl-V            | Will paste the copied line                                    |
+| Ctrl-Z            | Will undo the last remove line, cut or paste                  |
+| Ctrl-Y            | Will redo the last undo                                       |
 
 ### Configuration
 
