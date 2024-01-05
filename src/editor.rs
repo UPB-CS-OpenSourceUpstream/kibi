@@ -691,7 +691,7 @@ impl Editor {
     ///
     /// Will Return `Err` if any error occur.
     pub fn run(&mut self, file_name: &Option<String>) -> Result<(), Error> {
-        if let Some(path) = file_name.as_ref().map(|p| sys::path(p.as_str())) {
+        if let Some(path) = file_name.as_ref().and_then(|p| Some(sys::path(p.as_str()))) {
             self.select_syntax_highlight(path.as_path())?;
             self.load(path.as_path())?;
             self.file_name = Some(path.to_string_lossy().to_string());
@@ -699,23 +699,25 @@ impl Editor {
             self.rows.push(Row::new(Vec::new()));
             self.file_name = None;
         }
+    
         loop {
             if let Some(mode) = self.prompt_mode.as_ref() {
                 set_status!(self, "{}", mode.status_msg());
             }
+    
             self.refresh_screen()?;
             let key = self.loop_until_keypress()?;
-            // TODO: Can we avoid using take()?
-            self.prompt_mode = match self.prompt_mode.take() {
-                // process_keypress returns (should_quit, prompt_mode)
+    
+            self.prompt_mode = match self.prompt_mode.map_or_else(|| None, |pm| Some(pm.process_keypress(self, &key)?)) {
                 None => match self.process_keypress(&key) {
                     (true, _) => return Ok(()),
-                    (false, prompt_mode) => prompt_mode,
+                    (false, new_mode) => Some(new_mode),
                 },
-                Some(prompt_mode) => prompt_mode.process_keypress(self, &key)?,
-            }
+                pm => pm,
+            };
         }
     }
+    
 }
 
 impl Drop for Editor {
