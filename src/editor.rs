@@ -508,6 +508,13 @@ impl Editor {
     /// attribute of the editor will be set and syntax highlighting will be updated.
     fn save_as(&mut self, file_name: String) -> Result<(), Error> {
         // TODO: What if file_name already exists?
+
+        if std::fs::metadata(&file_name).is_ok() {
+            // File already exists, handle accordingly (e.g., show a warning or prompt for overwrite)
+            // For simplicity, we'll return an error here.
+            return Err(Error::FileAlreadyExists);
+        }
+
         if self.save_and_handle_io_errors(&file_name) {
             // If save was successful
             self.select_syntax_highlight(Path::new(&file_name))?;
