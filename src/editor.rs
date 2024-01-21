@@ -82,6 +82,21 @@ impl CursorState {
     }
 }
 
+// Tab structure
+#[derive(Default)]
+pub struct Tab {
+    pub content: String,
+}
+
+// Tab constructor
+impl Tab {
+    pub fn new() -> Self {
+        Self {
+            content: String::new(),
+        }
+    }
+}
+
 /// The `Editor` struct, contains the state and configuration of the text editor.
 #[derive(Default)]
 pub struct Editor {
@@ -122,6 +137,10 @@ pub struct Editor {
     orig_term_mode: Option<sys::TermMode>,
     /// The copied buffer of a row
     copied_row: Vec<u8>,
+
+    ///Tab definitions
+    tabs: Vec<Tab>,
+    current_tab_index: usize,
 }
 
 /// Describes a status message, shown at the bottom at the screen.
@@ -174,9 +193,51 @@ impl Editor {
         editor.orig_term_mode = Some(sys::enable_raw_mode()?);
         editor.update_window_size()?;
 
+        // Add a default tab
+        let default_tab = Tab::new();
+        editor.tabs.push(default_tab);
+
+        // Set index at first tab
+        editor.current_tab_index = 0;
+
         set_status!(editor, "{}", HELP_MESSAGE);
 
         Ok(editor)
+    }
+
+    pub fn add_tab(&mut self) {
+        let new_tab = Tab::new();
+        self.tabs.push(new_tab);
+    }
+
+    pub fn switch_tab(&mut self, tab_index: usize) {
+        if tab_index < self.tabs.len() {
+            self.current_tab_index = tab_index;
+        }
+    }
+
+    pub fn close_current_tab(&mut self) {
+        if self.tabs.len() > 1 {
+            self.tabs.remove(self.current_tab_index);
+            if self.current_tab_index >= self.tabs.len() {
+                self.current_tab_index = self.tabs.len() - 1;
+            }
+        }
+    }
+
+    pub fn current_tab(&self) -> Option<&Tab> {
+        self.tabs.get(self.current_tab_index)
+    }
+
+    pub fn update_current_tab_content(&mut self, new_content: String) {
+        if let Some(tab) = self.tabs.get_mut(self.current_tab_index) {
+            tab.content = new_content;
+        }
+    }
+
+    pub fn add_tab_at_end(&mut self, tab: Tab) {
+        // Adaugă tabul la sfârșitul listei de taburi
+        self.tabs.push(tab);
     }
 
     /// Return the current row if the cursor points to an existing row, `None` otherwise.
