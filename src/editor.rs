@@ -508,6 +508,13 @@ impl Editor {
     /// attribute of the editor will be set and syntax highlighting will be updated.
     fn save_as(&mut self, file_name: String) -> Result<(), Error> {
         // TODO: What if file_name already exists?
+
+        if std::fs::metadata(&file_name).is_ok() {
+            // File already exists, handle accordingly (e.g., show a warning or prompt for overwrite)
+            // For simplicity, we'll return an error here.
+            return Err(Error::FileAlreadyExists);
+        }
+
         if self.save_and_handle_io_errors(&file_name) {
             // If save was successful
             self.select_syntax_highlight(Path::new(&file_name))?;
@@ -637,13 +644,14 @@ impl Editor {
                 let times = if quit_times > 1 { "times" } else { "time" };
                 set_status!(self, "Press Ctrl+Q {} more {} to quit.", quit_times, times);
             }
-            Key::Char(SAVE) => match self.file_name.take() {
-                // TODO: Can we avoid using take() then reassigning the value to file_name?
-                Some(file_name) => {
-                    self.save_and_handle_io_errors(&file_name);
-                    self.file_name = Some(file_name);
+            Key::Char(SAVE) => {
+                match mem::replace(&mut self.file_name, None) {
+                    Some(file_name) => {
+                        self.save_and_handle_io_errors(&file_name);
+                        self.file_name = Some(file_name);
+                    }
+                    None => prompt_mode = Some(PromptMode::Save(String::new())),
                 }
-                None => prompt_mode = Some(PromptMode::Save(String::new())),
             },
             Key::Char(FIND) =>
                 prompt_mode = Some(PromptMode::Find(String::new(), self.cursor.clone(), None)),
@@ -691,7 +699,7 @@ impl Editor {
     ///
     /// Will Return `Err` if any error occur.
     pub fn run(&mut self, file_name: &Option<String>) -> Result<(), Error> {
-        if let Some(path) = file_name.as_ref().map(|p| sys::path(p.as_str())) {
+        if let Some(path) = file_name.as_ref().and_then(|p| Some(sys::path(p.as_str()))) {
             self.select_syntax_highlight(path.as_path())?;
             self.load(path.as_path())?;
             self.file_name = Some(path.to_string_lossy().to_string());
@@ -699,23 +707,25 @@ impl Editor {
             self.rows.push(Row::new(Vec::new()));
             self.file_name = None;
         }
+    
         loop {
             if let Some(mode) = self.prompt_mode.as_ref() {
                 set_status!(self, "{}", mode.status_msg());
             }
+    
             self.refresh_screen()?;
             let key = self.loop_until_keypress()?;
-            // TODO: Can we avoid using take()?
-            self.prompt_mode = match self.prompt_mode.take() {
-                // process_keypress returns (should_quit, prompt_mode)
+    
+            self.prompt_mode = match self.prompt_mode.map_or_else(|| None, |pm| Some(pm.process_keypress(self, &key)?)) {
                 None => match self.process_keypress(&key) {
                     (true, _) => return Ok(()),
-                    (false, prompt_mode) => prompt_mode,
+                    (false, new_mode) => Some(new_mode),
                 },
-                Some(prompt_mode) => prompt_mode.process_keypress(self, &key)?,
-            }
+                pm => pm,
+            };
         }
     }
+    
 }
 
 impl Drop for Editor {
